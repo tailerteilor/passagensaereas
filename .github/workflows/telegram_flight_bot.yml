@@ -1,0 +1,51 @@
+name: LetsFlyGo - Bot do Telegram
+
+on:
+  schedule:
+    - cron: '30 16 * * *' # Todo dia às 13:30 (Brasil / UTC-3)
+  workflow_dispatch:      # Permite iniciar pelo botão Play no GitHub
+
+permissions:
+  contents: write
+  
+jobs:
+  buscar_passagens:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixando os arquivos do repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparando o Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalando dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas requests
+
+      - name: Executando o motor de busca (Isolado)
+        env:
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+        run: |
+          cd telegram
+          python rapidapi_github_actions.py
+
+      - name: Salvando base de dados da nuvem no GitHub
+        run: |
+          git config --local user.email "bot@github.com"
+          git config --local user.name "LetsFlyGo Actions"
+          git add telegram/passagens_telegram.db
+          git commit -m "Atualizando historico de passagens_telegram.db" || echo "Sem alterações para salvar"
+          git push
+
+      - name: Enviar HTML via Telegram
+        if: success()
+        uses: appleboy/telegram-action@master
+        with:
+          to: "730087141,-1003976059098"
+          token: "8651014227:AAFqzKH20xco6e3fCYyNSCav5WOZcbKG8sE"
+          document: "telegram/html_reports/*.html"
+          message: "✈️ Novo Relatório de Voos gerado na Nuvem! \n\nBaixe o arquivo HTML acima para acessar os links direto de compra do Google Flights."

@@ -74,8 +74,11 @@ HTML_FORM = """
                             <div id="estimativaBox" class="alert alert-info w-100 mb-0 d-none" style="font-size:0.92rem;"></div>
                         </div>
                     </div>
-                    <div class="d-flex gap-2">
+                    <div class="d-flex gap-2 mb-3">
                         <button type="submit" class="btn btn-primary btn-lg flex-grow-1 fw-bold shadow-sm">🚀 Iniciar Varredura</button>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <a href="/dashboard" class="btn btn-success btn-lg flex-grow-1 fw-bold shadow-sm">📊 Acessar Dashboard</a>
                         <button type="button" class="btn btn-outline-secondary btn-lg fw-bold" onclick="saveConfig()" title="Salvar configuração atual">💾 Salvar Config</button>
                     </div>
                 </form>
