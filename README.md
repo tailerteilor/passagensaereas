@@ -89,3 +89,18 @@ python rapidapi.py -noview config/config.json
 4. Ao final, a interface terminal avisa a conclusão, e seus relatórios são guardados nas pastas!
 
 > **Dica Pro:** Utilize os arquivos `.bat` fornecidos (como o `iniciar_oculto.bat`) junto ao "Agendador de Tarefas do Windows" para rodar o motor invisivelmente todos os dias de madrugada!
+
+---
+
+## ☁️ 7. O Ecossistema Nuvem (GitHub Actions + Telegram)
+
+Para levar a automação ao extremo e rodar sem nem precisar ligar o seu computador, o sistema agora conta com um isolamento completo para CI/CD através do **GitHub Actions**.
+
+### Como Funciona:
+1. **O Robô Isolado:** Há um motor de varredura específico criado em `telegram/rapidapi_github_actions.py`. Ele **não usa** interface Web (Flask) para economizar RAM do servidor da Microsoft.
+2. **Cronograma:** Todos os dias às 13:30 (horário de Brasília), o `.github/workflows/telegram_flight_bot.yml` acorda o robô na nuvem.
+3. **Memória Persistente:** O robô alimenta um banco SQLite exclusivo (`passagens_telegram.db`) e faz um auto-commit (`git push`) para dentro do seu próprio repositório GitHub, criando uma memória vitalícia das pesquisas passadas.
+4. **Cálculo Matemático Instantâneo:** Ao finalizar a varredura, o Python levanta o Top 10 maiores descontos do dia vs. dia anterior e salva os resultados em texto (Markdown).
+5. **A Entrega:** Usando a integração de bot (`appleboy/telegram-action`), ele envia diretamente para o seu grupo no Telegram o arquivo HTML Standalone novinho em folha, junto com as mensagens de desconto. 
+
+> **Segurança:** O robô usa a chave secreta de API injetada diretamente via `Github Secrets` (`RAPIDAPI_KEY`), impedindo que o seu token vaze na internet caso o código seja público.

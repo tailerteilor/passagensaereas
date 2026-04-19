@@ -117,6 +117,65 @@ def save_standalone_html(ts):
     except Exception as e:
         print(f"[ERRO] Falha ao compilar HTML: {e}")
 
+def generate_telegram_message(ts):
+    conn = sqlite3.connect('passagens_telegram.db')
+    df = pd.read_sql("SELECT * FROM historico_voos", conn)
+    conn.close()
+    
+    timestamps = sorted(df['data_pesquisa'].unique())
+    if len(timestamps) < 2:
+        return f"✈️ *LetsFlyGo - Nuvem*\nPesquisa: {ts}\n\n*(Nenhum histórico anterior para comparar quedas de preço)*\n\nBaixe o arquivo HTML abaixo para acessar os links direto de compra do Google Flights."
+    
+    current_ts = ts
+    prev_ts = timestamps[-2] # Pega a penúltima pesquisa
+    
+    def get_mins(t):
+        d = df[df['data_pesquisa'] == t]
+        if d.empty: return {}
+        mins = {}
+        for (o, dest, m), group in d.groupby(['origem', 'destino', 'mes_voo']):
+            min_p = group['preco'].min()
+            dates = group[group['preco'] == min_p]['data_voo'].unique()
+            mins[f"{o}||{dest}||{m}"] = {'price': min_p, 'dates': dates}
+        return mins
+        
+    cur_mins = get_mins(current_ts)
+    prev_mins = get_mins(prev_ts)
+    
+    discounts = []
+    for k, c_data in cur_mins.items():
+        if k in prev_mins:
+            p_data = prev_mins[k]
+            diff = ((c_data['price'] - p_data['price']) / p_data['price']) * 100
+            if diff < 0:
+                o, d, m = k.split('||')
+                discounts.append({
+                    'orig': o, 'dest': d, 'mes': m,
+                    'old': p_data['price'], 'new': c_data['price'],
+                    'perc': diff, 'dates': c_data['dates']
+                })
+                
+    discounts.sort(key=lambda x: x['perc'])
+    top10 = discounts[:10]
+    
+    msg = f"✈️ *LetsFlyGo - Nuvem*\nPesquisa: {ts}\n\n"
+    if not top10:
+        msg += "Nenhuma queda de preço registrada desde a última pesquisa.\n\n"
+    else:
+        msg += "🔥 *Top 10 Quedas de Preço:*\n"
+        for i, d in enumerate(top10):
+            days = sorted([x.split('/')[0] for x in d['dates']])
+            d_str = " e ".join(days) if len(days) <= 3 else ", ".join(days[:3]) + "..."
+            c_orig = AIRPORTS.get(d['orig'], d['orig'])
+            c_dest = AIRPORTS.get(d['dest'], d['dest'])
+            
+            msg += f"{i+1}. {c_orig} ➔ {c_dest} ({d['mes']})\n"
+            msg += f"   De R${d['old']:.2f} por *R${d['new']:.2f}* ({d['perc']:.1f}%)\n"
+            msg += f"   📅 Dia(s): {d_str}\n\n"
+            
+    msg += "Baixe o arquivo HTML abaixo para acessar os links de compra!"
+    return msg
+
 def run_search():
     init_db()
     origens = [o.strip() for o in search_config['origens'].split(',') if o.strip()]
@@ -157,6 +216,11 @@ def run_search():
     conn.close()
     
     save_standalone_html(ts)
+    
+    # Gera a mensagem do Telegram e salva em um txt para o Action ler
+    telegram_msg = generate_telegram_message(ts)
+    with open('msg.txt', 'w', encoding='utf-8') as f:
+        f.write(telegram_msg)
 
 if __name__ == "__main__":
     run_search()

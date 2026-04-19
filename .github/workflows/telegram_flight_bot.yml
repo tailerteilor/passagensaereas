@@ -38,7 +38,8 @@ jobs:
           git config --local user.email "bot@github.com"
           git config --local user.name "LetsFlyGo Actions"
           git add telegram/passagens_telegram.db
-          git commit -m "Atualizando historico de passagens_telegram.db" || echo "Sem alterações para salvar"
+          git add telegram/html_reports/
+          git commit -m "Atualizando historico e ultimo HTML" || echo "Sem alterações para salvar"
           git push
 
       - name: Enviar HTML via Telegram
@@ -48,4 +49,4 @@ jobs:
           to: "730087141,-1003976059098"
           token: "8651014227:AAFqzKH20xco6e3fCYyNSCav5WOZcbKG8sE"
           document: "telegram/html_reports/*.html"
-          message: "✈️ Novo Relatório de Voos gerado na Nuvem! \n\nBaixe o arquivo HTML acima para acessar os links direto de compra do Google Flights."
+          message_file: "telegram/msg.txt"
