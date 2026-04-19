@@ -42,6 +42,14 @@ jobs:
           git commit -m "Atualizando historico e ultimo HTML" || echo "Sem alterações para salvar"
           git push
 
+      - name: Enviar Texto do Top 10 via Telegram
+        if: success()
+        uses: appleboy/telegram-action@master
+        with:
+          to: "730087141,-1003976059098"
+          token: "8651014227:AAFqzKH20xco6e3fCYyNSCav5WOZcbKG8sE"
+          message_file: "telegram/msg.txt"
+
       - name: Enviar HTML via Telegram
         if: success()
         uses: appleboy/telegram-action@master
@@ -49,4 +57,4 @@ jobs:
           to: "730087141,-1003976059098"
           token: "8651014227:AAFqzKH20xco6e3fCYyNSCav5WOZcbKG8sE"
           document: "telegram/html_reports/*.html"
-          message_file: "telegram/msg.txt"
+          message: "⬇️ O relatório completo em HTML está anexo aqui:"

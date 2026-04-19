@@ -192,7 +192,7 @@ def run_search():
 
     for dest in destinos:
         for orig in origens:
-            print(f"-> Buscando rota {orig} para {dest}...")
+            print(f"-> Buscando rota {orig} para {dest}...", flush=True)
             params = {
                 "source": orig, "destination": dest,
                 "outboundDepartmentDateStart": dt_start,
@@ -210,9 +210,13 @@ def run_search():
                         cur.execute("INSERT INTO historico_voos (origem, destino, mes_voo, data_voo, preco, cia_aerea, voo_id, hr_saida, hr_chegada, data_pesquisa) VALUES (?,?,?,?,?,?,?,?,?,?)",
                             (orig, dest, dt.strftime("%Y-%m"), dt.strftime("%d/%m/%Y"), preco, seg['carrier']['name'], f"{seg['carrier']['code']}{seg['code']}", dt.strftime("%H:%M"), "N/A", ts))
                     conn.commit()
+                else:
+                    print(f"⚠️ Erro da API na rota {orig}-{dest}: Status {res.status_code} - {res.text}", flush=True)
             except Exception as e:
-                print(f"Erro na conexao com a API: {e}")
-            time.sleep(1.5)
+                print(f"Erro de conexão na rota {orig}-{dest}: {e}", flush=True)
+            
+            # Delay de 3.5 segundos para evitar bloqueio por 'Too Many Requests' (Rate Limit) da API
+            time.sleep(3.5)
     conn.close()
     
     save_standalone_html(ts)
