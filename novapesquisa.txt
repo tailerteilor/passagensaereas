@@ -1,0 +1,16 @@
+Ok, vamos focar o app em rotas e não em datas. No prompt inicial deixe muito mais robusto as opções de preenchimento. Mas não coloque aeroporto minúsculo ou aeroporto particular.
+Adicione categorias por preenchimento automático por continentes. Adicione os 5 continentes habitáveis e os principais aeroportos nela respeitando o que já lhe foi repassado.
+Você vai fazer o levantamento, mas não vai inserir isso dentro do código, vai criar uma pasta config elá dentro deverá ter category.json com todos os aeroportos e categorias que lhe dei.
+
+Também no preenchimento automático deixe somar as categorias. Ex: se clicar em uma opção, essa se somar com novo clique que der em outra, sempre cuidando para não repetir os resultados.
+
+Se é 25 resultados por rotas então é 1 requisição por consulta,não? Maximixe a eficiência do app, veja se não tem consultas desnecessárias. 
+
+Na tela do dashboard, além de filtrar manualmente cada um, deixe o usuário filtrar pelas categorias pré estabelecidas no prompt. Se clicar em nordeste, por exmplo, exibir só o que tem para viagens no nordeste...
+
+Ou seja ele ficará muito mais robusto para roteiros. Evitaremos inúmeras pesquisas desnecessárias. É a ideia do usuário colocar a cidade dele e verpara onde está compensando viajar. Onde tem descontos. Essa é a ideia.
+
+Aqueles hacks que te passei, deixe o usuário ativar ele no prompt inicial e mostre no dashboard se aparecer em algum destino. Não polua muito também.
+"isTrueHiddenCity": false: Este é o hack da "cidade oculta".
+"isVirtualInterlining": false: Este é o hack de combinar companhias que não são parceiras, obrigando você a pegar a mala e fazer check-in novamente.
+"isThrowawayTicket": false: Este é o hack de comprar ida e volta porque é mais barato, mas descartar (jogar fora) a volta. 

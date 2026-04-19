@@ -1,0 +1,21 @@
+# Bancos de Dados
+passagens.db
+*.sqlite3
+
+# Pastas de Relatórios e Cache
+htmls/
+whatsapp/
+json/
+versions/
+
+# Pastas nativas do Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+
+# Arquivos de Sistema Operacional
+.DS_Store
+Thumbs.db
