@@ -1,0 +1,5 @@
+{
+  "version": "1.0.0",
+  "title": "Release Inicial do Ecossistema Analytics",
+  "description": "Refatoracao arquitetural completa. Adicionado suporte a SQLite em RAM, painel dashboard responsivo, sistema de notificacoes de queda de preco, suporte a exportacao para WhatsApp e modo CLI de busca invisivel."
+}

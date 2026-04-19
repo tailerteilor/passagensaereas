@@ -24,7 +24,7 @@ Este arquivo é o **coração geográfico** do seu programa. Ele foi criado para
 
 ---
 
-## 🧠 2. Mecânica do Desconto e Análise de Preço (Top 5)
+## 🧠 2. Mecânica do Desconto e Análise de Preço (Top 10)
 
 A cada vez que você pesquisa uma rota, o sistema estampa no banco de dados (`passagens.db`) uma exata *timestamp* (`data_pesquisa`). Como ele calcula e exibe as quedas de preço (descontos)?
 
