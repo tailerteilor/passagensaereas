@@ -66,6 +66,8 @@ def save_whatsapp_text(ts):
         timestamps = sorted(df['data_pesquisa'].unique())
         if not timestamps:
             print("Nenhum dado salvo. Cancelando relatório.")
+            with open('whatsapp_message.txt', 'w', encoding='utf-8') as f:
+                f.write("⚠️ *LetsFlyGo* ⚠️\nNenhum dado de voo foi encontrado ou a base de dados está vazia.")
             return
 
         current_ts = ts
@@ -192,6 +194,8 @@ def save_whatsapp_text(ts):
         print("[OK] Texto do WhatsApp gerado em whatsapp_message.txt!")
     except Exception as e:
         print(f"[ERRO] Falha ao compilar texto: {e}")
+        with open('whatsapp_message.txt', 'w', encoding='utf-8') as f:
+            f.write(f"❌ *LetsFlyGo* ❌\nOcorreu um erro ao gerar o relatório:\n{e}")
 
 def run_search():
     init_db()
