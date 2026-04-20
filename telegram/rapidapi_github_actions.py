@@ -199,8 +199,8 @@ def save_whatsapp_text(ts):
 
 def run_search():
     init_db()
-    origens = [o.strip() for o in search_config['origens'].split(',') if o.strip()]
-    destinos = [d.strip() for d in search_config['destino'].split(',') if d.strip()]
+    origens = [o.strip().upper() for o in search_config['origens'].split(',') if o.strip()]
+    destinos = [d.strip().upper() for d in search_config['destino'].split(',') if d.strip()]
     
     headers = {
         "x-rapidapi-key": api_key,
