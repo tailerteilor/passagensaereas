@@ -40,5 +40,7 @@ jobs:
           git config --local user.email "bot@github.com"
           git config --local user.name "LetsFlyGo Actions"
           git add telegram/passagens_telegram.db
-          git commit -m "Atualizando historico de passagens_telegram.db" || echo "Sem alterações para salvar"
+          git add flights_data.json
+          git add exportar_site/
+          git commit -m "Atualizando historico e export_site" || echo "Sem alterações para salvar"
           git push

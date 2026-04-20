@@ -34,11 +34,17 @@ if not api_key:
     api_key = "cc1a5e6bd4msh55d5e01c0e0b40ap10ebe7jsnd0c1b2553339"
 
 AIRPORTS = {}
+rawCategorias = {}
 try:
     with open('../config/destinos.json', encoding='utf-8') as f:
         dest_data = json.load(f)
+        rawCategorias = dest_data
         for cat, aps in dest_data.items():
+            if cat == 'tudo': continue
             for ap in aps:
+                AIRPORTS[ap['iata']] = ap['cidade']
+        if 'tudo' in dest_data:
+            for ap in dest_data['tudo']:
                 AIRPORTS[ap['iata']] = ap['cidade']
 except:
     pass
@@ -54,7 +60,24 @@ def init_db():
             data_pesquisa TEXT
         )
     ''')
-    cur.execute("DELETE FROM historico_voos WHERE data_pesquisa < datetime('now', '-10 days')")
+    cur.execute("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='media_historica'")
+    if cur.fetchone()[0] == 0:
+        cur.execute('''CREATE TABLE media_historica (
+            origem TEXT, destino TEXT, mes_voo TEXT, media_preco REAL, qtd_registros INTEGER,
+            PRIMARY KEY (origem, destino, mes_voo)
+        )''')
+        # Calcula média inicial
+        cur.execute('''
+            INSERT INTO media_historica (origem, destino, mes_voo, media_preco, qtd_registros)
+            SELECT origem, destino, mes_voo, AVG(min_preco), COUNT(min_preco)
+            FROM (
+                SELECT origem, destino, mes_voo, data_pesquisa, MIN(preco) as min_preco
+                FROM historico_voos
+                GROUP BY origem, destino, mes_voo, data_pesquisa
+            )
+            GROUP BY origem, destino, mes_voo
+        ''')
+    cur.execute("DELETE FROM historico_voos WHERE data_pesquisa < datetime('now', '-90 days')")
     conn.commit()
     conn.close()
 
@@ -62,7 +85,15 @@ def save_whatsapp_text(ts):
     try:
         conn = sqlite3.connect('passagens_telegram.db')
         df = pd.read_sql("SELECT * FROM historico_voos", conn)
+        df_media = pd.read_sql("SELECT * FROM media_historica", conn)
         conn.close()
+        
+        hist_dict = {}
+        for _, row in df_media.iterrows():
+            r = f"{row['origem']}||{row['destino']}"
+            m = row['mes_voo']
+            if r not in hist_dict: hist_dict[r] = {}
+            hist_dict[r][m] = {'media': row['media_preco'], 'qtd': row['qtd_registros']}
         
         timestamps = sorted(df['data_pesquisa'].unique())
         if not timestamps:
@@ -107,6 +138,7 @@ def save_whatsapp_text(ts):
         
         matrix_rows = {}
         discounts = []
+        discounts_hist = []
         
         for route in all_routes:
             route_latest_ts = None
@@ -140,10 +172,41 @@ def save_whatsapp_text(ts):
                             'perc': diff_perc, 'dates': list(cur_cell['dates'])
                         })
                         
+                hist_data = hist_dict.get(route, {}).get(mes)
+                if hist_data:
+                    media_hist = hist_data['media']
+                    diff_perc_hist = ((cur_cell['price'] - media_hist) / media_hist) * 100
+                    if diff_perc_hist < 0:
+                        discounts_hist.append({
+                            'orig': orig, 'dest': dest, 'mes': mes,
+                            'old': media_hist, 'new': cur_cell['price'],
+                            'perc': diff_perc_hist, 'dates': list(cur_cell['dates'])
+                        })
+                        
                 matrix_rows[route][mes] = {
                     'price': cur_cell['price'], 'diffPerc': diff_perc,
                     'dates': list(cur_cell['dates'])
                 }
+                
+        # Atualiza a média histórica com a pesquisa atual
+        conn = sqlite3.connect('passagens_telegram.db')
+        cur = conn.cursor()
+        for route, d in min_data.get(current_ts, {}).items():
+            orig, dest = route.split('||')
+            for mes, c in d.items():
+                cur_min = c['price']
+                if route in hist_dict and mes in hist_dict[route]:
+                    old_qtd = hist_dict[route][mes]['qtd']
+                    old_media = hist_dict[route][mes]['media']
+                    new_qtd = old_qtd + 1
+                    new_media = ((old_media * old_qtd) + cur_min) / new_qtd
+                    cur.execute("UPDATE media_historica SET media_preco=?, qtd_registros=? WHERE origem=? AND destino=? AND mes_voo=?",
+                                (new_media, new_qtd, orig, dest, mes))
+                else:
+                    cur.execute("INSERT INTO media_historica (origem, destino, mes_voo, media_preco, qtd_registros) VALUES (?,?,?,?,?)",
+                                (orig, dest, mes, cur_min, 1))
+        conn.commit()
+        conn.close()
 
         def get_city(code):
             return AIRPORTS.get(code, code)
@@ -191,6 +254,36 @@ def save_whatsapp_text(ts):
         
         with open('whatsapp_message.txt', 'w', encoding='utf-8') as f:
             f.write(text)
+            
+        # ---------- INICIO EXPORTAÇÃO JSON ----------
+        import shutil
+        class SetEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, set):
+                    return list(obj)
+                return super().default(obj)
+
+        export_data = {
+            "currentSearchTime": current_ts,
+            "discounts": discounts,
+            "discounts_hist": discounts_hist,
+            "matrixRows": matrix_rows,
+            "meses": meses,
+            "allMinData": min_data,
+            "airports": AIRPORTS,
+            "rawCategorias": rawCategorias,
+            "noHistory": previous_ts is None
+        }
+        
+        # Salva o json na raiz para o github pages
+        with open('../flights_data.json', 'w', encoding='utf-8') as f:
+            json.dump(export_data, f, ensure_ascii=False, cls=SetEncoder)
+            
+        # Copia para a pasta exportar_site
+        os.makedirs('../exportar_site', exist_ok=True)
+        shutil.copy('../flights_data.json', '../exportar_site/flights_data.json')
+        shutil.copy('../index.html', '../exportar_site/index.html')
+        # ---------- FIM EXPORTAÇÃO JSON ----------
             
         # Enviar via telegram em pedacos
         bot_token = os.environ.get("TELEGRAM_TOKEN")

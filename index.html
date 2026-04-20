@@ -5,7 +5,6 @@
     <title>LetsFlyGo - Painel Público de Preços</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -128,6 +127,14 @@
         [data-theme="dracula"] .text-emerald-400 { color: #50fa7b !important; }
     
     </style>
+    <script nowprocket data-noptimize="1" data-cfasync="false" data-wpfc-render="false" seraph-accel-crit="1" data-no-defer="1">
+      (function () {
+          var script = document.createElement("script");
+          script.async = 1;
+          script.src = 'https://emrldco.com/NTIwNzk0.js?t=520794';
+          document.head.appendChild(script);
+      })();
+    </script>
 </head>
 <body class="min-h-screen p-3 md:p-5">
 
@@ -171,9 +178,15 @@
     <div id="dashboard-content" class="hidden space-y-4">
         <!-- Top 10 Discounts -->
         <section>
-            <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">🔥 Top 10 Maiores Quedas de Preço</h2>
-            <div id="top-discounts" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4"></div>
+            <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">🔥 Top 10 Maiores Quedas de Preço (Últimas 24h)</h2>
+            <div id="top-discounts" class="grid grid-cols-5 gap-2 md:gap-4 overflow-x-auto pb-2"></div>
             <p id="no-history-msg" class="text-slate-400 text-sm italic hidden mt-2">* Nenhum histórico anterior para comparar.</p>
+        </section>
+        
+        <section>
+            <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">📉 Top 10 Abaixo da Média Histórica</h2>
+            <div id="top-discounts-hist" class="grid grid-cols-5 gap-2 md:gap-4 overflow-x-auto pb-2"></div>
+            <p id="no-history-msg-hist" class="text-slate-400 text-sm italic hidden mt-2">* Sem histórico suficiente para calcular média.</p>
         </section>
         <!-- Origin + Destination Filters -->
         <div class="glass-panel rounded-xl p-4 flex flex-wrap gap-6">
@@ -210,7 +223,7 @@
     </div>
 </div>
 
-<footer class="mt-4 pt-4 border-t border-slate-700/50 text-center text-slate-500 text-xs font-medium pb-4">Desenvolvido por Sr. Carvalho</footer>
+<footer class="mt-4 pt-4 border-t border-slate-700/50 text-center text-slate-500 text-xs font-medium pb-4">LetsFlyGo Analytics</footer>
 
 <!-- Dates Modal -->
 <div id="modal-dates" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden" onclick="if(event.target===this)closeModal()">
@@ -255,133 +268,39 @@
     let airports = {};
     let rawCategorias = {};
 
-    async function loadAirports() {
-        try {
-            const res = await fetch('config/destinos.json');
-            if(res.ok) {
-                const data = await res.json();
-                rawCategorias = data;
-                if (data.tudo) {
-                    data.tudo.forEach(ap => {
-                        airports[ap.iata] = ap.cidade;
-                    });
-                }
-            }
-        } catch (e) {
-            console.warn("Could not load destinos.json", e);
-        }
-    }
-
     function getCity(code) {
         return airports[code.toUpperCase()] || code.toUpperCase();
     }
 
-    let SQL;
-    
-    // Initialize sql.js
-    async function initSqlJsLib() {
-        if (!SQL) {
-            SQL = await initSqlJs({
-                locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
-            });
-        }
-    }
-
-    // Try to fetch automatically
     async function tryAutoLoadDB() {
         try {
-            await loadAirports();
-            await initSqlJsLib();
-            const response = await fetch('telegram/passagens_telegram.db?t=' + new Date().getTime());
+            const response = await fetch('flights_data.json?t=' + new Date().getTime());
             if (response.ok) {
-                const buffer = await response.arrayBuffer();
-                processDB(new Uint8Array(buffer));
+                const data = await response.json();
+                
+                airports = data.airports || {};
+                rawCategorias = data.rawCategorias || {};
+                
+                document.getElementById('last-update').innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> Atualizado: ${data.currentSearchTime}`;
+                
+                window.latestDataForExport = data;
+                
+                buildFilters(Object.keys(data.matrixRows));
+                renderTopDiscounts(data.discounts, data.noHistory, 'top-discounts', 'no-history-msg');
+                renderTopDiscounts(data.discounts_hist || [], false, 'top-discounts-hist', 'no-history-msg-hist');
+                renderMatrix(data.matrixRows, data.meses);
+                
+                document.getElementById('dashboard-content').classList.remove('hidden');
             } else {
-                throw new Error("Database file not found on the server.");
+                throw new Error("flights_data.json not found");
             }
         } catch (e) {
-            console.log("Could not auto-fetch passagens_telegram.db.", e);
+            console.log("Could not auto-fetch flights_data.json.", e);
             document.getElementById('loading').innerHTML = `
-                <div class="text-red-400 text-xl font-bold mb-2">⚠️ Banco de dados indisponível</div>
-                <p class="text-slate-400">Não foi possível carregar os dados de telegram/passagens_telegram.db</p>
+                <div class="text-red-400 text-xl font-bold mb-2">⚠️ Dados indisponíveis</div>
+                <p class="text-slate-400">Não foi possível carregar os dados de voos.</p>
             `;
-        }
-    }
-
-    function processDB(uints) {
-        const db = new SQL.Database(uints);
-        
-        try {
-            // Check if historico_voos exists
-            const tableExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='historico_voos';");
-            if (tableExists.length === 0) {
-                alert("Tabela historico_voos não encontrada no banco de dados.");
-                hideLoading();
-                return;
-            }
-
-            const columnsInfo = db.exec("PRAGMA table_info(historico_voos);");
-            if (columnsInfo.length === 0) {
-                alert("A tabela historico_voos está vazia.");
-                hideLoading();
-                return;
-            }
-            
-            const cols = columnsInfo[0].values.map(v => v[1]);
-            
-            let origemCol = cols.includes("origem") ? "origem" : "source";
-            let destinoCol = cols.includes("destino") ? "destino" : "destination";
-            let precoCol = cols.includes("preco") ? "preco" : "price";
-            
-            let mesVooCol = "";
-            if (cols.includes("mes_voo")) {
-                mesVooCol = "mes_voo";
-            } else if (cols.includes("data_saida")) {
-                mesVooCol = "substr(data_saida, 1, 7)"; // If it's YYYY-MM-DD
-            } else if (cols.includes("data_voo")) {
-                mesVooCol = "substr(data_voo, 7, 4) || '-' || substr(data_voo, 4, 2)"; // If DD/MM/YYYY
-            } else {
-                mesVooCol = "'Geral'";
-            }
-
-            let dataPesqCol = "";
-            if (cols.includes("data_pesquisa")) {
-                dataPesqCol = "data_pesquisa";
-            } else if (cols.includes("data_consulta")) {
-                dataPesqCol = "data_consulta";
-            } else {
-                dataPesqCol = "'1970-01-01 00:00:00'";
-            }
-
-            // also grab data_voo for date-level detail
-            let dataVooCol = cols.includes('data_voo') ? 'data_voo' : "'?'";
-            const query = `SELECT ${origemCol}, ${destinoCol}, ${mesVooCol}, ${precoCol}, ${dataPesqCol}, ${dataVooCol} FROM historico_voos`;
-
-            const results = db.exec(query);
-            if (results.length === 0) {
-                document.getElementById('loading').innerHTML = `
-                    <div class="text-slate-400 text-lg">O banco de dados está vazio no momento.</div>
-                `;
-                return;
-            }
-
-            const data = results[0].values.map(row => ({
-                origem: row[0],
-                destino: row[1],
-                mes_voo: row[2],
-                preco: parseFloat(row[3]),
-                data_pesquisa: row[4],
-                data_voo: row[5]   // DD/MM/YYYY
-            }));
-
-            analyzeData(data);
-            document.getElementById('dashboard-content').classList.remove('hidden');
-
-        } catch (e) {
-            console.error(e);
-            alert("Erro ao processar o banco de dados: " + e.message);
         } finally {
-            db.close();
             hideLoading();
         }
     }
@@ -390,102 +309,8 @@
         document.getElementById('loading').classList.add('hidden');
     }
 
-    function analyzeData(data) {
-        const timestamps = [...new Set(data.map(d => d.data_pesquisa))].sort();
-        const currentTs  = timestamps[timestamps.length - 1];
-        document.getElementById('last-update').innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span> Atualizado: ${currentTs}`;
-        const previousTs = timestamps.length > 1 ? timestamps[timestamps.length - 2] : null;
-
-        const mesesSet = new Set();
-        data.forEach(r => mesesSet.add(r.mes_voo));
-        const meses = [...mesesSet].sort();
-
-        // minData[ts][route][mes] = { price, dates: Set }
-        const minData = {};
-        data.forEach(row => {
-            const ts    = row.data_pesquisa;
-            const route = `${row.origem}||${row.destino}`;
-            const mes   = row.mes_voo;
-            const price = parseFloat(row.preco);
-            const dv    = row.data_voo || '?';
-            if (isNaN(price)) return;
-
-            if (!minData[ts])          minData[ts] = {};
-            if (!minData[ts][route])   minData[ts][route] = {};
-            const cur = minData[ts][route][mes];
-            if (!cur || price < cur.price) {
-                minData[ts][route][mes] = { price, dates: new Set([dv]) };
-            } else if (price === cur.price) {
-                cur.dates.add(dv);
-            }
-        });
-
-        const allRoutesSet = new Set();
-        Object.values(minData).forEach(tsData => {
-            Object.keys(tsData).forEach(route => allRoutesSet.add(route));
-        });
-        const allRoutes = [...allRoutesSet];
-
-        const matrixRows = {};
-        const discounts  = [];
-
-        allRoutes.forEach(routeKey => {
-            let routeLatestTs = null;
-            let routePrevTs = null;
-            for (let i = timestamps.length - 1; i >= 0; i--) {
-                const ts = timestamps[i];
-                if (minData[ts][routeKey]) {
-                    if (!routeLatestTs) {
-                        routeLatestTs = ts;
-                    } else if (!routePrevTs) {
-                        routePrevTs = ts;
-                        break;
-                    }
-                }
-            }
-
-            matrixRows[routeKey] = {};
-            let minPriceForRoute = Infinity;
-
-            // First pass to find min price
-            meses.forEach(mes => {
-                const curCell  = routeLatestTs ? (minData[routeLatestTs][routeKey]?.[mes] ?? null) : null;
-                if (curCell && curCell.price < minPriceForRoute) {
-                    minPriceForRoute = curCell.price;
-                }
-            });
-            matrixRows[routeKey]._minPrice = minPriceForRoute;
-
-            meses.forEach(mes => {
-                const curCell  = routeLatestTs ? (minData[routeLatestTs][routeKey]?.[mes] ?? null) : null;
-                const prevCell = routePrevTs ? (minData[routePrevTs][routeKey]?.[mes] ?? null) : null;
-                if (!curCell) return;
-
-                let diffPerc = null;
-                if (prevCell) {
-                    diffPerc = ((curCell.price - prevCell.price) / prevCell.price) * 100;
-                    if (diffPerc < 0) {
-                        const [orig, dest] = routeKey.split('||');
-                        discounts.push({ orig, dest, mes, old: prevCell.price, new: curCell.price, perc: diffPerc, dates: [...curCell.dates] });
-                    }
-                }
-                matrixRows[routeKey][mes] = { price: curCell.price, diffPerc, dates: [...curCell.dates], orig: routeKey.split('||')[0], dest: routeKey.split('||')[1] };
-            });
-        });
-
-        buildFilters(allRoutes);
-        renderTopDiscounts(discounts, previousTs === null);
-        renderMatrix(matrixRows, meses);
-
-        window.latestDataForExport = {
-            currentSearchTime: currentTs,
-            discounts: [...discounts].sort((a, b) => a.perc - b.perc),
-            matrixRows, meses, allMinData: minData
-        };
-    }
-
     // ---- Origin + Destination filters ----
-    let selectedOrig = null;
+    let activeOrigs = new Set();
     let activeCategories = new Set();
 
     function buildFilters(allRoutes) {
@@ -496,22 +321,29 @@
         origContainer.innerHTML = '';
         destContainer.innerHTML = '';
 
-        // default to first origin
-        if (origs.length > 0 && !selectedOrig) selectedOrig = origs[0];
+        // default to all origins
+        if (activeOrigs.size === 0 && origs.length > 0) {
+            origs.forEach(o => activeOrigs.add(o));
+        }
 
         origs.forEach(orig => {
             const btn = document.createElement('button');
             btn.textContent = `${orig} – ${getCity(orig)}`;
             btn.dataset.orig = orig;
-            const active = orig === selectedOrig;
-            btn.className = `px-3 py-1 rounded-full text-xs font-semibold border transition-all ${active ? 'bg-blue-600 border-blue-500 text-white' : 'btn-filter-normal'}`;
+            
+            const updateOrigBtn = () => {
+                if (activeOrigs.has(orig)) {
+                    btn.className = 'px-3 py-1 rounded-full text-xs font-semibold border transition-all bg-blue-600 border-blue-500 text-white';
+                } else {
+                    btn.className = 'px-3 py-1 rounded-full text-xs font-semibold border transition-all btn-filter-normal';
+                }
+            };
+            updateOrigBtn();
+            
             btn.onclick = () => {
-                selectedOrig = orig;
-                document.querySelectorAll('#orig-filters button').forEach(b => {
-                    b.className = b.dataset.orig === orig
-                        ? 'px-3 py-1 rounded-full text-xs font-semibold border transition-all bg-blue-600 border-blue-500 text-white'
-                        : 'px-3 py-1 rounded-full text-xs font-semibold border transition-all btn-filter-normal';
-                });
+                if (activeOrigs.has(orig)) activeOrigs.delete(orig);
+                else activeOrigs.add(orig);
+                updateOrigBtn();
                 applyFilters();
             };
             origContainer.appendChild(btn);
@@ -555,9 +387,17 @@
         }
         
         document.querySelectorAll('#matrix-body tr').forEach(tr => {
-            const matchOrig = !selectedOrig || tr.dataset.orig === selectedOrig;
+            const matchOrig = activeOrigs.has(tr.dataset.orig);
             const matchDest = !allowedDests || allowedDests.has(tr.dataset.dest);
             tr.style.display = (matchOrig && matchDest) ? '' : 'none';
+        });
+        
+        document.querySelectorAll('.cell-btn').forEach(btn => {
+            if (btn.closest('#top-discounts') || btn.closest('#top-discounts-hist')) {
+                const matchOrig = activeOrigs.has(btn.dataset.orig);
+                const matchDest = !allowedDests || allowedDests.has(btn.dataset.dest);
+                btn.style.display = (matchOrig && matchDest) ? '' : 'none';
+            }
         });
     }
 
@@ -639,9 +479,9 @@
     }
 
     // ---- Render functions ----
-    function renderTopDiscounts(discounts, noHistory) {
-        const container = document.getElementById('top-discounts');
-        const noHistMsg  = document.getElementById('no-history-msg');
+    function renderTopDiscounts(discounts, noHistory, containerId, msgId) {
+        const container = document.getElementById(containerId);
+        const noHistMsg  = document.getElementById(msgId);
         container.innerHTML = '';
         if (noHistory) { noHistMsg.classList.remove('hidden'); return; }
         noHistMsg.classList.add('hidden');
