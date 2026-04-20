@@ -161,7 +161,7 @@ def save_whatsapp_text(ts):
                 else:
                     dates_str = f" [Dia(s) {', '.join(dates_list[:3])}...]"
                 
-                text += f"{i+1}. {d['orig']}→{d['dest']} {d['mes']}: R${d['new']:.2f} ({d['perc']:.1f}%){dates_str}\n"
+                text += f"{i+1}. {get_city(d['orig'])}→{get_city(d['dest'])} {d['mes']}: R${d['new']:.2f} ({d['perc']:.1f}%){dates_str}\n"
             text += "\n"
             
         text += "📊 *Preços mínimos mensais:*\n"

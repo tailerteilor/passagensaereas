@@ -269,28 +269,124 @@ def generate_whatsapp_text(ts, prev_ts=None):
         conn = sqlite3.connect('passagens.db')
         df = pd.read_sql("SELECT * FROM historico_voos", conn)
         conn.close()
-        if df.empty: return ""
+        
+        timestamps = sorted(df['data_pesquisa'].unique())
+        if not timestamps:
+            return "⚠️ *LetsFlyGo* ⚠️\nNenhum dado de voo foi encontrado ou a base de dados está vazia."
 
-        cur = df[df['data_pesquisa'] == ts]
-        text = f"✈️ *LetsFlyGo* ✈️\nPesquisa: {ts}\n\n"
+        current_ts = ts
+        if current_ts not in timestamps:
+            current_ts = timestamps[-1]
+            
+        previous_ts = prev_ts
+        if not previous_ts and len(timestamps) > 1:
+            idx = timestamps.index(current_ts)
+            if idx > 0:
+                previous_ts = timestamps[idx - 1]
 
-        routes = cur.groupby(['origem','destino'])
-        text += "📊 *Preços mínimos mensais:*\n"
-        for (orig, dest), rdf in sorted(routes):
-            city_o = AIRPORTS.get(orig, orig)
-            city_d = AIRPORTS.get(dest, dest)
-            text += f"*{city_o} \u2192 {city_d}*\n"
-            for mes, mdf in sorted(rdf.groupby('mes_voo')):
-                min_p = mdf['preco'].min()
-                dates = sorted(mdf[mdf['preco'] == min_p]['data_voo'].unique())
-                # extract day only from DD/MM/YYYY
-                days = [d.split('/')[0] for d in dates if '/' in d]
-                if len(days) <= 3:
-                    days_str = ' e '.join(days)
+        min_data = {}
+        for _, row in df.iterrows():
+            t = row['data_pesquisa']
+            orig = row['origem']
+            dest = row['destino']
+            mes = row['mes_voo']
+            price = float(row['preco'])
+            dv = row['data_voo']
+            
+            route = f"{orig}||{dest}"
+            
+            if t not in min_data: min_data[t] = {}
+            if route not in min_data[t]: min_data[t][route] = {}
+            
+            if mes not in min_data[t][route]:
+                min_data[t][route][mes] = {'price': price, 'dates': set([dv])}
+            elif price < min_data[t][route][mes]['price']:
+                min_data[t][route][mes] = {'price': price, 'dates': set([dv])}
+            elif price == min_data[t][route][mes]['price']:
+                min_data[t][route][mes]['dates'].add(dv)
+                
+        all_routes = set()
+        for t, d in min_data.items():
+            for r in d.keys():
+                all_routes.add(r)
+        
+        meses = sorted(df['mes_voo'].unique())
+        
+        matrix_rows = {}
+        discounts = []
+        
+        for route in all_routes:
+            route_latest_ts = current_ts if route in min_data.get(current_ts, {}) else None
+            route_prev_ts = previous_ts if route in min_data.get(previous_ts, {}) else None
+            
+            matrix_rows[route] = {}
+            orig, dest = route.split('||')
+            
+            for mes in meses:
+                cur_cell = min_data.get(route_latest_ts, {}).get(route, {}).get(mes) if route_latest_ts else None
+                prev_cell = min_data.get(route_prev_ts, {}).get(route, {}).get(mes) if route_prev_ts else None
+                
+                if not cur_cell:
+                    continue
+                
+                diff_perc = None
+                if prev_cell:
+                    diff_perc = ((cur_cell['price'] - prev_cell['price']) / prev_cell['price']) * 100
+                    if diff_perc < 0:
+                        discounts.append({
+                            'orig': orig, 'dest': dest, 'mes': mes,
+                            'old': prev_cell['price'], 'new': cur_cell['price'],
+                            'perc': diff_perc, 'dates': list(cur_cell['dates'])
+                        })
+                        
+                matrix_rows[route][mes] = {
+                    'price': cur_cell['price'], 'diffPerc': diff_perc,
+                    'dates': list(cur_cell['dates'])
+                }
+
+        def get_city(code):
+            return AIRPORTS.get(code, code)
+
+        text = f"✈️ *LetsFlyGo* ✈️\nPesquisa: {current_ts}\n\n"
+        
+        discounts.sort(key=lambda x: x['perc'])
+        top10 = discounts[:10]
+        
+        if top10:
+            text += "🔥 *Top quedas de preço:*\n"
+            for i, d in enumerate(top10):
+                dates_list = sorted([x.split('/')[0] for x in d['dates']])
+                if len(dates_list) <= 3:
+                    dates_str = f" [Dia(s) {' e '.join(dates_list)}]" if dates_list else ""
                 else:
-                    days_str = ', '.join(days[:3]) + '...'
-                text += f"  {mes}: R${min_p:.2f} [Dia(s) {days_str}]\n"
+                    dates_str = f" [Dia(s) {', '.join(dates_list[:3])}...]"
+                
+                text += f"{i+1}. {get_city(d['orig'])}→{get_city(d['dest'])} {d['mes']}: R${d['new']:.2f} ({d['perc']:.1f}%){dates_str}\n"
             text += "\n"
+            
+        text += "📊 *Preços mínimos mensais:*\n"
+        for route in sorted(matrix_rows.keys()):
+            orig, dest = route.split('||')
+            text += f"*{get_city(orig)} → {get_city(dest)}*\n"
+            
+            for mes in meses:
+                cell = matrix_rows[route].get(mes)
+                if not cell: continue
+                
+                trend = ""
+                if cell['diffPerc'] is not None:
+                    if cell['diffPerc'] < 0:
+                        trend = f" 📉{cell['diffPerc']:.1f}%"
+                    elif cell['diffPerc'] > 0:
+                        trend = f" 📈+{cell['diffPerc']:.1f}%"
+                
+                dates_list = sorted([x.split('/')[0] for x in cell['dates']])
+                if len(dates_list) <= 3:
+                    dates_str = f" [Dia(s) {' e '.join(dates_list)}]" if dates_list else ""
+                else:
+                    dates_str = f" [Dia(s) {', '.join(dates_list[:3])}...]"
+                
+                text += f"  {mes}: R${cell['price']:.2f}{trend}{dates_str}\n"
         return text
     except Exception as e:
         return f"[Erro ao gerar relatório: {e}]"
