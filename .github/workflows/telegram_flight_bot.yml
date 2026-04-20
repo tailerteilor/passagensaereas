@@ -46,6 +46,7 @@ jobs:
           touch telegram/whatsapp_message.txt
           echo "WHATSAPP_MSG<<EOF" >> $GITHUB_ENV
           cat telegram/whatsapp_message.txt >> $GITHUB_ENV
+          echo "" >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
       - name: Enviar Texto via Telegram
