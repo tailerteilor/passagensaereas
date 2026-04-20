@@ -29,6 +29,8 @@ jobs:
       - name: Executando o motor de busca (Isolado)
         env:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
         run: |
           cd telegram
           python rapidapi_github_actions.py
@@ -40,19 +42,3 @@ jobs:
           git add telegram/passagens_telegram.db
           git commit -m "Atualizando historico de passagens_telegram.db" || echo "Sem alterações para salvar"
           git push
-
-      - name: Preparar Texto para o Telegram
-        run: |
-          touch telegram/whatsapp_message.txt
-          echo "WHATSAPP_MSG<<EOF" >> $GITHUB_ENV
-          cat telegram/whatsapp_message.txt >> $GITHUB_ENV
-          echo "" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
-      - name: Enviar Texto via Telegram
-        if: success()
-        uses: appleboy/telegram-action@master
-        with:
-          to: "730087141,-1003976059098"
-          token: "8651014227:AAFqzKH20xco6e3fCYyNSCav5WOZcbKG8sE"
-          message: "${{ env.WHATSAPP_MSG }}"

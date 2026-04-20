@@ -4,8 +4,9 @@ import os
 import sys
 import time
 import argparse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import webbrowser
+brz_tz = timezone(timedelta(hours=-3))
 from threading import Timer, Thread
 from flask import Flask, render_template_string, request, Response, send_file, jsonify
 import requests
@@ -476,7 +477,7 @@ def start():
     search_config = {
         'origens': request.form.get('origens', '').upper(),
         'destino': request.form.get('destino', '').upper(),
-        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        'timestamp': datetime.now(brz_tz).strftime("%Y-%m-%d %H:%M:%S")
     }
     init_db()
     return render_template_string(HTML_PROGRESS)
@@ -503,8 +504,8 @@ def stream():
         conn = sqlite3.connect('passagens.db')
         cur  = conn.cursor()
 
-        dt_start = datetime.now().strftime("%Y-%m-%dT00:00:00")
-        dt_end = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%dT23:59:59")
+        dt_start = datetime.now(brz_tz).strftime("%Y-%m-%dT00:00:00")
+        dt_end = (datetime.now(brz_tz) + timedelta(days=365)).strftime("%Y-%m-%dT23:59:59")
 
         for dest in destinos:
             for orig in origens:
@@ -548,7 +549,7 @@ def stream():
 def dashboard():
     with open('dashboard.html', encoding='utf-8') as f:
         html = f.read()
-    return render_template_string(html, AIRPORTS_JSON=json.dumps(AIRPORTS))
+    return render_template_string(html, AIRPORTS_JSON=json.dumps(AIRPORTS), CATEGORIAS_JSON=json.dumps(DESTINOS_DATA))
 
 @app.route('/passagens.db')
 def serve_db():
@@ -579,8 +580,8 @@ def run_auto_search():
     }
     conn = sqlite3.connect('passagens.db')
     cur = conn.cursor()
-    dt_start = datetime.now().strftime("%Y-%m-%dT00:00:00")
-    dt_end = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%dT23:59:59")
+    dt_start = datetime.now(brz_tz).strftime("%Y-%m-%dT00:00:00")
+    dt_end = (datetime.now(brz_tz) + timedelta(days=365)).strftime("%Y-%m-%dT23:59:59")
 
     for dest in destinos:
         for orig in origens:
@@ -625,7 +626,7 @@ if __name__ == '__main__':
         with open(args.config_file, encoding='utf-8') as cf:
             cfg = json.load(cf)
         search_config.update(cfg)
-        search_config['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        search_config['timestamp'] = datetime.now(brz_tz).strftime("%Y-%m-%d %H:%M:%S")
         init_db()
         Thread(target=run_auto_search, daemon=True).start()
 

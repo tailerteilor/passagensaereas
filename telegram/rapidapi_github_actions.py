@@ -3,7 +3,8 @@ import pandas as pd
 import os
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+brz_tz = timezone(timedelta(hours=-3))
 import requests
 import json
 import glob
@@ -23,7 +24,7 @@ if not os.path.exists(config_path):
 with open(config_path, encoding='utf-8') as f:
     search_config = json.load(f)
 
-ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+ts = datetime.now(brz_tz).strftime("%Y-%m-%d %H:%M:%S")
 
 # A API Key DEVE vir dos Secrets do GitHub Actions (variavel de ambiente)
 api_key = os.environ.get("RAPIDAPI_KEY")
@@ -191,7 +192,32 @@ def save_whatsapp_text(ts):
         with open('whatsapp_message.txt', 'w', encoding='utf-8') as f:
             f.write(text)
             
-        print("[OK] Texto do WhatsApp gerado em whatsapp_message.txt!")
+        # Enviar via telegram em pedacos
+        bot_token = os.environ.get("TELEGRAM_TOKEN")
+        to_ids = os.environ.get("TELEGRAM_TO", "")
+        chats = [x.strip() for x in to_ids.split(",") if x.strip()]
+        
+        if not bot_token or not chats:
+            print("[AVISO] Token do Telegram ou Chats não configurados no ambiente.")
+            return
+        
+        chunks = []
+        current_chunk = ""
+        for line in text.split('\n'):
+            if len(current_chunk) + len(line) + 1 > 3900:
+                chunks.append(current_chunk)
+                current_chunk = line + "\n"
+            else:
+                current_chunk += line + "\n"
+        if current_chunk.strip():
+            chunks.append(current_chunk)
+            
+        for chat in chats:
+            for chunk in chunks:
+                url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+                requests.post(url, data={"chat_id": chat, "text": chunk, "parse_mode": "Markdown"})
+                
+        print("[OK] Texto do WhatsApp gerado e enviado ao Telegram em pedaços!")
     except Exception as e:
         print(f"[ERRO] Falha ao compilar texto: {e}")
         with open('whatsapp_message.txt', 'w', encoding='utf-8') as f:
@@ -208,8 +234,8 @@ def run_search():
     }
     conn = sqlite3.connect('passagens_telegram.db')
     cur = conn.cursor()
-    dt_start = datetime.now().strftime("%Y-%m-%dT00:00:00")
-    dt_end = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%dT23:59:59")
+    dt_start = datetime.now(brz_tz).strftime("%Y-%m-%dT00:00:00")
+    dt_end = (datetime.now(brz_tz) + timedelta(days=365)).strftime("%Y-%m-%dT23:59:59")
 
     for dest in destinos:
         for orig in origens:
