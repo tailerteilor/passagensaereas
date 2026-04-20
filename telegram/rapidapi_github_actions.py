@@ -11,10 +11,8 @@ import glob
 print("Iniciando rotina isolada LetsFlyGo para o Telegram...")
 
 # Limpa relatórios antigos da pasta para garantir que o Telegram só receba o novo
-if not os.path.exists('html_reports'):
-    os.makedirs('html_reports')
-for f in glob.glob('html_reports/*.html'):
-    os.remove(f)
+if os.path.exists('whatsapp_message.txt'):
+    os.remove('whatsapp_message.txt')
 
 # Carrega a configuração do github folder
 config_path = '../github/config_telegram.json'
@@ -59,63 +57,141 @@ def init_db():
     conn.commit()
     conn.close()
 
-def save_standalone_html(ts):
-    safe_ts = ts.replace(':', '-').replace(' ', '_')
-    html_dir = 'html_reports'
-    
+def save_whatsapp_text(ts):
     try:
         conn = sqlite3.connect('passagens_telegram.db')
         df = pd.read_sql("SELECT * FROM historico_voos", conn)
         conn.close()
         
-        cur_df = df[df['data_pesquisa'] == ts]
-        if cur_df.empty: 
-            print("Nenhum dado salvo. Cancelando relatório HTML.")
+        timestamps = sorted(df['data_pesquisa'].unique())
+        if not timestamps:
+            print("Nenhum dado salvo. Cancelando relatório.")
             return
 
-        meses = sorted(cur_df['mes_voo'].unique())
-        th_style = 'padding:10px 14px;background:#0f172a;color:#94a3b8;font-size:12px;text-transform:uppercase;letter-spacing:.05em'
-        ths = f'<th style="{th_style}">Rota</th>' + ''.join(f'<th style="{th_style};text-align:center">{m}</th>' for m in meses)
+        current_ts = ts
+        if current_ts not in timestamps:
+            current_ts = timestamps[-1]
+            
+        previous_ts = timestamps[-2] if len(timestamps) > 1 else None
 
-        rows_html = ''
-        for (orig, dest), rdf in sorted(cur_df.groupby(['origem','destino'])):
-            city_o = AIRPORTS.get(orig, orig)
-            city_d = AIRPORTS.get(dest, dest)
-            tds = f'<td style="padding:10px 14px;font-weight:600;white-space:nowrap">{city_o} → {city_d}<br><small style="color:#94a3b8;font-weight:400">{orig}→{dest}</small></td>'
+        min_data = {}
+        for _, row in df.iterrows():
+            t = row['data_pesquisa']
+            orig = row['origem']
+            dest = row['destino']
+            mes = row['mes_voo']
+            price = float(row['preco'])
+            dv = row['data_voo']
+            
+            route = f"{orig}||{dest}"
+            
+            if t not in min_data: min_data[t] = {}
+            if route not in min_data[t]: min_data[t][route] = {}
+            
+            if mes not in min_data[t][route]:
+                min_data[t][route][mes] = {'price': price, 'dates': set([dv])}
+            elif price < min_data[t][route][mes]['price']:
+                min_data[t][route][mes] = {'price': price, 'dates': set([dv])}
+            elif price == min_data[t][route][mes]['price']:
+                min_data[t][route][mes]['dates'].add(dv)
+                
+        all_routes = set()
+        for t, d in min_data.items():
+            for r in d.keys():
+                all_routes.add(r)
+        
+        meses = sorted(df['mes_voo'].unique())
+        
+        matrix_rows = {}
+        discounts = []
+        
+        for route in all_routes:
+            route_latest_ts = None
+            route_prev_ts = None
+            for i in range(len(timestamps)-1, -1, -1):
+                t = timestamps[i]
+                if route in min_data.get(t, {}):
+                    if not route_latest_ts:
+                        route_latest_ts = t
+                    elif not route_prev_ts:
+                        route_prev_ts = t
+                        break
+            
+            matrix_rows[route] = {}
+            orig, dest = route.split('||')
+            
             for mes in meses:
-                mdf = rdf[rdf['mes_voo'] == mes]
-                if mdf.empty: tds += '<td style="padding:8px;text-align:center;color:#475569">-</td>'; continue
-                min_p = mdf['preco'].min()
-                dates = sorted(mdf[mdf['preco'] == min_p]['data_voo'].unique())
+                cur_cell = min_data.get(route_latest_ts, {}).get(route, {}).get(mes) if route_latest_ts else None
+                prev_cell = min_data.get(route_prev_ts, {}).get(route, {}).get(mes) if route_prev_ts else None
                 
-                def make_link(d, o=orig, ds=dest):
-                    p = d.split('/')
-                    iso = f"{p[2]}-{p[1]}-{p[0]}" if len(p)==3 else d
-                    url = f"https://www.google.com/travel/flights?q=Flights%20from%20{o}%20to%20{ds}%20on%20{iso}"
-                    return f'<a href="{url}" target="_blank" style="display:inline-block;margin:2px;padding:2px 7px;background:#1e40af33;border:1px solid #3b82f680;border-radius:5px;color:#93c5fd;font-size:11px;text-decoration:none">{d}</a>'
+                if not cur_cell:
+                    continue
                 
-                dlinks = ''.join(make_link(d) for d in dates)
-                tds += f'<td style="padding:8px;text-align:center"><div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:6px 10px;display:inline-block"><b style="color:#f1f5f9">R${min_p:.2f}</b><div style="margin-top:4px">{dlinks}</div></div></td>'
-            rows_html += f'<tr style="border-bottom:1px solid #1e293b">{tds}</tr>'
+                diff_perc = None
+                if prev_cell:
+                    diff_perc = ((cur_cell['price'] - prev_cell['price']) / prev_cell['price']) * 100
+                    if diff_perc < 0:
+                        discounts.append({
+                            'orig': orig, 'dest': dest, 'mes': mes,
+                            'old': prev_cell['price'], 'new': cur_cell['price'],
+                            'perc': diff_perc, 'dates': list(cur_cell['dates'])
+                        })
+                        
+                matrix_rows[route][mes] = {
+                    'price': cur_cell['price'], 'diffPerc': diff_perc,
+                    'dates': list(cur_cell['dates'])
+                }
 
-        html = f"""<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-<title>LetsFlyGo Relatório (Telegram) - {ts}</title>
-<style>*{{box-sizing:border-box;margin:0;padding:0}}body{{background:#0f172a;color:#f1f5f9;font-family:system-ui,sans-serif;padding:32px}}h1{{background:linear-gradient(90deg,#60a5fa,#34d399);-webkit-background-clip:text;-webkit-text-fill-color:transparent;font-size:2rem;margin-bottom:4px}}table{{width:100%;border-collapse:collapse}}a{{text-decoration:none}}</style>
-</head><body>
-<h1>LetsFlyGo (Relatório Cloud)</h1>
-<p style="color:#64748b;margin-bottom:24px">Pesquisa realizada em: {ts}</p>
-<div style="overflow-x:auto;border-radius:12px;border:1px solid #1e293b">
-<table><thead><tr>{ths}</tr></thead><tbody>{rows_html}</tbody></table>
-</div>
-<p style="color:#334155;font-size:11px;margin-top:20px">Gerado automaticamente pelo GitHub Actions.</p>
-</body></html>"""
+        def get_city(code):
+            return AIRPORTS.get(code, code)
 
-        filename = f"{html_dir}/LetsFlyGo_{safe_ts}.html"
-        with open(filename, 'w', encoding='utf-8') as f:
-            f.write(html)
-        print(f"[OK] HTML do Telegram pronto em {filename}!")
+        text = f"✈️ *LetsFlyGo* ✈️\nPesquisa: {current_ts}\n\n"
+        
+        discounts.sort(key=lambda x: x['perc'])
+        top10 = discounts[:10]
+        
+        if top10:
+            text += "🔥 *Top quedas de preço:*\n"
+            for i, d in enumerate(top10):
+                dates_list = sorted([x.split('/')[0] for x in d['dates']])
+                if len(dates_list) <= 3:
+                    dates_str = f" [Dia(s) {' e '.join(dates_list)}]" if dates_list else ""
+                else:
+                    dates_str = f" [Dia(s) {', '.join(dates_list[:3])}...]"
+                
+                text += f"{i+1}. {d['orig']}→{d['dest']} {d['mes']}: R${d['new']:.2f} ({d['perc']:.1f}%){dates_str}\n"
+            text += "\n"
+            
+        text += "📊 *Preços mínimos mensais:*\n"
+        for route in sorted(matrix_rows.keys()):
+            orig, dest = route.split('||')
+            text += f"*{get_city(orig)} → {get_city(dest)}*\n"
+            
+            for mes in meses:
+                cell = matrix_rows[route].get(mes)
+                if not cell: continue
+                
+                trend = ""
+                if cell['diffPerc'] is not None:
+                    if cell['diffPerc'] < 0:
+                        trend = f" 📉{cell['diffPerc']:.1f}%"
+                    elif cell['diffPerc'] > 0:
+                        trend = f" 📈+{cell['diffPerc']:.1f}%"
+                
+                dates_list = sorted([x.split('/')[0] for x in cell['dates']])
+                if len(dates_list) <= 3:
+                    dates_str = f" [Dia(s) {' e '.join(dates_list)}]" if dates_list else ""
+                else:
+                    dates_str = f" [Dia(s) {', '.join(dates_list[:3])}...]"
+                
+                text += f"  {mes}: R${cell['price']:.2f}{trend}{dates_str}\n"
+        
+        with open('whatsapp_message.txt', 'w', encoding='utf-8') as f:
+            f.write(text)
+            
+        print("[OK] Texto do WhatsApp gerado em whatsapp_message.txt!")
     except Exception as e:
-        print(f"[ERRO] Falha ao compilar HTML: {e}")
+        print(f"[ERRO] Falha ao compilar texto: {e}")
 
 def run_search():
     init_db()
@@ -156,8 +232,7 @@ def run_search():
             time.sleep(1.5)
     conn.close()
     
-    save_standalone_html(ts)
-
+    save_whatsapp_text(ts)
 if __name__ == "__main__":
     run_search()
     print("Rotina isolada concluida com sucesso!")
