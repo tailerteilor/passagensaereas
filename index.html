@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>LetsFlyGo - Painel Público de Preços</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .price-badge-green {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        .price-badge-red {
+            background: rgba(239, 68, 68, 0.2);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        .price-badge-gray {
+            background: rgba(148, 163, 184, 0.1);
+            color: #94a3b8;
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
+</head>
+<body class="min-h-screen p-3 md:p-5">
+
+<div class="w-[97vw] mx-auto">
+    <header class="mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div>
+            <h1 class="text-4xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400 mb-2">
+                LetsFlyGo Analytics
+            </h1>
+            <p class="text-slate-400">Análise histórica e tendências de preços de passagens (Atualização Automática)</p>
+        </div>
+        
+        <div class="mt-6 md:mt-0 flex flex-wrap gap-3 items-center justify-end">
+            <div class="glass-panel p-3 rounded-xl flex items-center gap-3">
+                <div class="text-sm">
+                    <p class="font-semibold text-emerald-400 text-xs">Status da Nuvem</p>
+                    <p class="text-slate-300 text-xs flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+                        Sincronizado
+                    </p>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div id="loading" class="text-center py-20">
+        <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500 mb-4"></div>
+        <p class="text-slate-400">Processando banco de dados...</p>
+    </div>
+
+    <div id="dashboard-content" class="hidden space-y-6">
+        <!-- Origin + Destination Filters -->
+        <div class="glass-panel rounded-xl p-4 flex flex-wrap gap-6">
+            <div>
+                <p class="text-xs text-slate-400 mb-2 font-semibold uppercase tracking-widest">Filtrar por Origem</p>
+                <div id="orig-filters" class="flex flex-wrap gap-2"></div>
+            </div>
+            <div>
+                <p class="text-xs text-slate-400 mb-2 font-semibold uppercase tracking-widest">Filtrar Destinos</p>
+                <div id="dest-filters" class="flex flex-wrap gap-2"></div>
+            </div>
+        </div>
+
+        <!-- Main Matrix -->
+        <section class="glass-panel rounded-2xl overflow-hidden shadow-2xl">
+            <div class="p-5 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/30">
+                <h2 class="text-xl font-bold">Matriz Mensal de Preços</h2>
+                <div class="text-sm text-slate-400 flex items-center gap-4">
+                    <span class="flex items-center gap-1"><div class="w-3 h-3 rounded-full bg-emerald-500"></div> Queda</span>
+                    <span class="flex items-center gap-1"><div class="w-3 h-3 rounded-full bg-red-500"></div> Aumento</span>
+                    <span class="text-xs text-slate-500">Clique em um preço para ver as datas</span>
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse whitespace-nowrap">
+                    <thead><tr id="matrix-header" class="bg-slate-800/80 text-slate-300 text-sm uppercase tracking-wider"></tr></thead>
+                    <tbody id="matrix-body" class="divide-y divide-slate-700/50 text-sm"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Top 10 Discounts -->
+        <section>
+            <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">🔥 Top 10 Maiores Quedas de Preço</h2>
+            <div id="top-discounts" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4"></div>
+            <p id="no-history-msg" class="text-slate-400 text-sm italic hidden mt-2">* Nenhum histórico anterior para comparar.</p>
+        </section>
+    </div>
+</div>
+
+<!-- Dates Modal -->
+<div id="modal-dates" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden" onclick="if(event.target===this)closeModal()">
+  <div class="glass-panel rounded-2xl w-full max-w-md p-6 shadow-2xl">
+    <div class="flex justify-between items-center mb-4">
+      <h3 id="modal-title" class="text-lg font-bold"></h3>
+      <button onclick="closeModal()" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
+    </div>
+    <p class="text-xs text-slate-400 mb-3">Clique em uma data para buscar no Google Flights</p>
+    <div id="modal-dates-list" class="flex flex-wrap gap-2 max-h-72 overflow-y-auto"></div>
+  </div>
+</div>
+
+<!-- Trend Modal -->
+<div id="modal-trend" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 hidden" onclick="if(event.target===this)closeTrendModal()">
+  <div class="glass-panel rounded-2xl w-full max-w-2xl p-6 shadow-2xl">
+    <div class="flex justify-between items-center mb-4">
+      <h3 id="trend-title" class="text-lg font-bold"></h3>
+      <button onclick="closeTrendModal()" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
+    </div>
+    <canvas id="trend-chart" height="120"></canvas>
+    <p class="text-xs text-slate-500 mt-3">Evolução do menor preço por mês ao longo das pesquisas</p>
+  </div>
+</div>
+
+<script>
+    let airports = {};
+
+    async function loadAirports() {
+        try {
+            const res = await fetch('config/destinos.json');
+            if(res.ok) {
+                const data = await res.json();
+                if (data.tudo) {
+                    data.tudo.forEach(ap => {
+                        airports[ap.iata] = ap.cidade;
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn("Could not load destinos.json", e);
+        }
+    }
+
+    function getCity(code) {
+        return airports[code.toUpperCase()] || code.toUpperCase();
+    }
+
+    let SQL;
+    
+    // Initialize sql.js
+    async function initSqlJsLib() {
+        if (!SQL) {
+            SQL = await initSqlJs({
+                locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/${file}`
+            });
+        }
+    }
+
+    // Try to fetch automatically
+    async function tryAutoLoadDB() {
+        try {
+            await loadAirports();
+            await initSqlJsLib();
+            const response = await fetch('telegram/passagens_telegram.db?t=' + new Date().getTime());
+            if (response.ok) {
+                const buffer = await response.arrayBuffer();
+                processDB(new Uint8Array(buffer));
+            } else {
+                throw new Error("Database file not found on the server.");
+            }
+        } catch (e) {
+            console.log("Could not auto-fetch passagens_telegram.db.", e);
+            document.getElementById('loading').innerHTML = `
+                <div class="text-red-400 text-xl font-bold mb-2">⚠️ Banco de dados indisponível</div>
+                <p class="text-slate-400">Não foi possível carregar os dados de telegram/passagens_telegram.db</p>
+            `;
+        }
+    }
+
+    function processDB(uints) {
+        const db = new SQL.Database(uints);
+        
+        try {
+            // Check if historico_voos exists
+            const tableExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='historico_voos';");
+            if (tableExists.length === 0) {
+                alert("Tabela historico_voos não encontrada no banco de dados.");
+                hideLoading();
+                return;
+            }
+
+            const columnsInfo = db.exec("PRAGMA table_info(historico_voos);");
+            if (columnsInfo.length === 0) {
+                alert("A tabela historico_voos está vazia.");
+                hideLoading();
+                return;
+            }
+            
+            const cols = columnsInfo[0].values.map(v => v[1]);
+            
+            let origemCol = cols.includes("origem") ? "origem" : "source";
+            let destinoCol = cols.includes("destino") ? "destino" : "destination";
+            let precoCol = cols.includes("preco") ? "preco" : "price";
+            
+            let mesVooCol = "";
+            if (cols.includes("mes_voo")) {
+                mesVooCol = "mes_voo";
+            } else if (cols.includes("data_saida")) {
+                mesVooCol = "substr(data_saida, 1, 7)"; // If it's YYYY-MM-DD
+            } else if (cols.includes("data_voo")) {
+                mesVooCol = "substr(data_voo, 7, 4) || '-' || substr(data_voo, 4, 2)"; // If DD/MM/YYYY
+            } else {
+                mesVooCol = "'Geral'";
+            }
+
+            let dataPesqCol = "";
+            if (cols.includes("data_pesquisa")) {
+                dataPesqCol = "data_pesquisa";
+            } else if (cols.includes("data_consulta")) {
+                dataPesqCol = "data_consulta";
+            } else {
+                dataPesqCol = "'1970-01-01 00:00:00'";
+            }
+
+            // also grab data_voo for date-level detail
+            let dataVooCol = cols.includes('data_voo') ? 'data_voo' : "'?'";
+            const query = `SELECT ${origemCol}, ${destinoCol}, ${mesVooCol}, ${precoCol}, ${dataPesqCol}, ${dataVooCol} FROM historico_voos`;
+
+            const results = db.exec(query);
+            if (results.length === 0) {
+                document.getElementById('loading').innerHTML = `
+                    <div class="text-slate-400 text-lg">O banco de dados está vazio no momento.</div>
+                `;
+                return;
+            }
+
+            const data = results[0].values.map(row => ({
+                origem: row[0],
+                destino: row[1],
+                mes_voo: row[2],
+                preco: parseFloat(row[3]),
+                data_pesquisa: row[4],
+                data_voo: row[5]   // DD/MM/YYYY
+            }));
+
+            analyzeData(data);
+            document.getElementById('dashboard-content').classList.remove('hidden');
+
+        } catch (e) {
+            console.error(e);
+            alert("Erro ao processar o banco de dados: " + e.message);
+        } finally {
+            db.close();
+            hideLoading();
+        }
+    }
+
+    function hideLoading() {
+        document.getElementById('loading').classList.add('hidden');
+    }
+
+    function analyzeData(data) {
+        const timestamps = [...new Set(data.map(d => d.data_pesquisa))].sort();
+        const currentTs  = timestamps[timestamps.length - 1];
+        const previousTs = timestamps.length > 1 ? timestamps[timestamps.length - 2] : null;
+
+        const mesesSet = new Set();
+        data.forEach(r => mesesSet.add(r.mes_voo));
+        const meses = [...mesesSet].sort();
+
+        // minData[ts][route][mes] = { price, dates: Set }
+        const minData = {};
+        data.forEach(row => {
+            const ts    = row.data_pesquisa;
+            const route = `${row.origem}||${row.destino}`;
+            const mes   = row.mes_voo;
+            const price = parseFloat(row.preco);
+            const dv    = row.data_voo || '?';
+            if (isNaN(price)) return;
+
+            if (!minData[ts])          minData[ts] = {};
+            if (!minData[ts][route])   minData[ts][route] = {};
+            const cur = minData[ts][route][mes];
+            if (!cur || price < cur.price) {
+                minData[ts][route][mes] = { price, dates: new Set([dv]) };
+            } else if (price === cur.price) {
+                cur.dates.add(dv);
+            }
+        });
+
+        const allRoutesSet = new Set();
+        Object.values(minData).forEach(tsData => {
+            Object.keys(tsData).forEach(route => allRoutesSet.add(route));
+        });
+        const allRoutes = [...allRoutesSet];
+
+        const matrixRows = {};
+        const discounts  = [];
+
+        allRoutes.forEach(routeKey => {
+            let routeLatestTs = null;
+            let routePrevTs = null;
+            for (let i = timestamps.length - 1; i >= 0; i--) {
+                const ts = timestamps[i];
+                if (minData[ts][routeKey]) {
+                    if (!routeLatestTs) {
+                        routeLatestTs = ts;
+                    } else if (!routePrevTs) {
+                        routePrevTs = ts;
+                        break;
+                    }
+                }
+            }
+
+            matrixRows[routeKey] = {};
+            let minPriceForRoute = Infinity;
+
+            // First pass to find min price
+            meses.forEach(mes => {
+                const curCell  = routeLatestTs ? (minData[routeLatestTs][routeKey]?.[mes] ?? null) : null;
+                if (curCell && curCell.price < minPriceForRoute) {
+                    minPriceForRoute = curCell.price;
+                }
+            });
+            matrixRows[routeKey]._minPrice = minPriceForRoute;
+
+            meses.forEach(mes => {
+                const curCell  = routeLatestTs ? (minData[routeLatestTs][routeKey]?.[mes] ?? null) : null;
+                const prevCell = routePrevTs ? (minData[routePrevTs][routeKey]?.[mes] ?? null) : null;
+                if (!curCell) return;
+
+                let diffPerc = null;
+                if (prevCell) {
+                    diffPerc = ((curCell.price - prevCell.price) / prevCell.price) * 100;
+                    if (diffPerc < 0) {
+                        const [orig, dest] = routeKey.split('||');
+                        discounts.push({ orig, dest, mes, old: prevCell.price, new: curCell.price, perc: diffPerc, dates: [...curCell.dates] });
+                    }
+                }
+                matrixRows[routeKey][mes] = { price: curCell.price, diffPerc, dates: [...curCell.dates], orig: routeKey.split('||')[0], dest: routeKey.split('||')[1] };
+            });
+        });
+
+        buildFilters(allRoutes);
+        renderTopDiscounts(discounts, previousTs === null);
+        renderMatrix(matrixRows, meses);
+
+        window.latestDataForExport = {
+            currentSearchTime: currentTs,
+            discounts: [...discounts].sort((a, b) => a.perc - b.perc),
+            matrixRows, meses, allMinData: minData
+        };
+    }
+
+    // ---- Origin + Destination filters ----
+    let selectedOrig = null;
+    let hiddenDests  = new Set();
+
+    function buildFilters(allRoutes) {
+        const origs = [...new Set(allRoutes.map(r => r.split('||')[0]))].sort();
+        const dests  = [...new Set(allRoutes.map(r => r.split('||')[1]))].sort();
+
+        const origContainer = document.getElementById('orig-filters');
+        const destContainer = document.getElementById('dest-filters');
+        origContainer.innerHTML = '';
+        destContainer.innerHTML = '';
+
+        // default to first origin
+        if (origs.length > 0 && !selectedOrig) selectedOrig = origs[0];
+
+        origs.forEach(orig => {
+            const btn = document.createElement('button');
+            btn.textContent = `${orig} – ${getCity(orig)}`;
+            btn.dataset.orig = orig;
+            const active = orig === selectedOrig;
+            btn.className = `px-3 py-1 rounded-full text-xs font-semibold border transition-all ${active ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-700 border-slate-600 text-slate-200 hover:bg-slate-600'}`;
+            btn.onclick = () => {
+                selectedOrig = orig;
+                document.querySelectorAll('#orig-filters button').forEach(b => {
+                    b.className = b.dataset.orig === orig
+                        ? 'px-3 py-1 rounded-full text-xs font-semibold border transition-all bg-blue-600 border-blue-500 text-white'
+                        : 'px-3 py-1 rounded-full text-xs font-semibold border transition-all bg-slate-700 border-slate-600 text-slate-200 hover:bg-slate-600';
+                });
+                applyFilters();
+            };
+            origContainer.appendChild(btn);
+        });
+
+        dests.forEach(dest => {
+            const btn = document.createElement('button');
+            btn.textContent = `${dest} – ${getCity(dest)}`;
+            btn.dataset.dest = dest;
+            btn.className = 'px-3 py-1 rounded-full text-xs font-semibold border transition-all bg-slate-700 border-slate-600 text-slate-200 hover:bg-slate-600';
+            btn.onclick = () => {
+                if (hiddenDests.has(dest)) { hiddenDests.delete(dest); btn.classList.remove('opacity-40','line-through'); }
+                else { hiddenDests.add(dest); btn.classList.add('opacity-40','line-through'); }
+                applyFilters();
+            };
+            destContainer.appendChild(btn);
+        });
+
+        applyFilters();
+    }
+
+    function applyFilters() {
+        document.querySelectorAll('#matrix-body tr').forEach(tr => {
+            const matchOrig = !selectedOrig || tr.dataset.orig === selectedOrig;
+            const matchDest = !hiddenDests.has(tr.dataset.dest);
+            tr.style.display = (matchOrig && matchDest) ? '' : 'none';
+        });
+    }
+
+    // ---- Dates Modal ----
+    function openDatesModal(orig, dest, mes, price, dates) {
+        try {
+            document.getElementById('modal-title').textContent = `${getCity(orig)} ➔ ${getCity(dest)} | ${mes} | R$ ${price.toFixed(2)}`;
+            const list = document.getElementById('modal-dates-list');
+            list.innerHTML = '';
+            const toISO = d => { const p = d.split('/'); return p.length===3 ? `${p[2]}-${p[1]}-${p[0]}` : d; };
+            const arr = Array.isArray(dates) ? dates : Array.from(dates);
+            arr.sort().forEach(dv => {
+                const iso = toISO(dv);
+                const url = `https://www.google.com/travel/flights?q=Flights%20from%20${orig}%20to%20${dest}%20on%20${iso}`;
+                const a = document.createElement('a');
+                a.href = url; a.target = '_blank';
+                a.textContent = dv;
+                a.className = 'px-3 py-2 rounded-lg text-sm font-semibold bg-blue-600/30 hover:bg-blue-600 border border-blue-500/40 text-blue-300 hover:text-white transition-all';
+                list.appendChild(a);
+            });
+            document.getElementById('modal-dates').classList.remove('hidden');
+        } catch (e) {
+            console.error("Erro ao abrir modal de datas:", e);
+            alert("Erro ao abrir datas: " + e.message);
+        }
+    }
+    function closeModal() { document.getElementById('modal-dates').classList.add('hidden'); }
+
+    // Global Click Listener for Cells
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('.cell-btn');
+        if (btn) {
+            const orig = btn.dataset.orig;
+            const dest = btn.dataset.dest;
+            const mes = btn.dataset.mes;
+            const price = parseFloat(btn.dataset.price);
+            const dates = JSON.parse(btn.dataset.dates || '[]');
+            openDatesModal(orig, dest, mes, price, dates);
+        }
+    });
+
+    // ---- Trend Chart Modal ----
+    let trendChart = null;
+    function openTrendModal(routeKey) {
+        if (!window.latestDataForExport) return;
+        const { allMinData, meses } = window.latestDataForExport;
+        const [orig, dest] = routeKey.split('||');
+        const timestamps = Object.keys(allMinData).sort();
+        const colors = ['#60a5fa','#34d399','#f472b6','#fb923c','#a78bfa','#facc15'];
+
+        const datasets = meses.map((mes, i) => ({
+            label: mes,
+            data: timestamps.map(ts => allMinData[ts]?.[routeKey]?.[mes]?.price ?? null),
+            borderColor: colors[i % colors.length],
+            backgroundColor: colors[i % colors.length] + '22',
+            spanGaps: true, tension: 0.3, pointRadius: 4
+        })).filter(d => d.data.some(v => v !== null));
+
+        document.getElementById('trend-title').textContent = `Tendência: ${getCity(orig)} ➔ ${getCity(dest)}`;
+        const ctx = document.getElementById('trend-chart').getContext('2d');
+        if (trendChart) trendChart.destroy();
+        trendChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: timestamps.map(t => t.slice(0,16)), datasets },
+            options: {
+                responsive: true,
+                plugins: { legend: { labels: { color: '#94a3b8' } } },
+                scales: {
+                    x: { ticks: { color: '#64748b' }, grid: { color: '#1e293b' } },
+                    y: { ticks: { color: '#64748b', callback: v => 'R$' + v }, grid: { color: '#1e293b' } }
+                }
+            }
+        });
+        document.getElementById('modal-trend').classList.remove('hidden');
+    }
+    function closeTrendModal() {
+        document.getElementById('modal-trend').classList.add('hidden');
+        if (trendChart) { trendChart.destroy(); trendChart = null; }
+    }
+
+    // ---- Render functions ----
+    function renderTopDiscounts(discounts, noHistory) {
+        const container = document.getElementById('top-discounts');
+        const noHistMsg  = document.getElementById('no-history-msg');
+        container.innerHTML = '';
+        if (noHistory) { noHistMsg.classList.remove('hidden'); return; }
+        noHistMsg.classList.add('hidden');
+        discounts.sort((a,b) => a.perc - b.perc);
+        const top10 = discounts.slice(0,10);
+        if (top10.length === 0) { container.innerHTML = `<p class="col-span-full text-slate-400">Nenhum desconto vs última pesquisa.</p>`; return; }
+        top10.forEach(d => {
+            const card = document.createElement('div');
+            card.className = 'glass-panel rounded-xl p-4 flex flex-col justify-between hover:-translate-y-1 transition-transform border border-emerald-500/30 cursor-pointer cell-btn';
+            card.dataset.orig = d.orig;
+            card.dataset.dest = d.dest;
+            card.dataset.mes = d.mes;
+            card.dataset.price = d.new;
+            card.dataset.dates = JSON.stringify(Array.from(d.dates || []));
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-2">
+                    <span class="bg-emerald-500/20 text-emerald-400 text-xs font-bold px-2 py-1 rounded-md">${d.perc.toFixed(1)}%</span>
+                    <span class="text-xs text-slate-400 bg-slate-800 px-2 py-1 rounded">${d.mes}</span>
+                </div>
+                <div class="mb-3">
+                    <div class="text-sm font-semibold text-slate-200 truncate" title="${getCity(d.orig)}">${getCity(d.orig)}</div>
+                    <div class="text-xs text-slate-500">para</div>
+                    <div class="text-sm font-semibold text-slate-200 truncate" title="${getCity(d.dest)}">${getCity(d.dest)}</div>
+                </div>
+                <div class="mt-auto flex items-end justify-between">
+                    <div class="text-xs text-slate-500 line-through">R$ ${d.old.toFixed(2)}</div>
+                    <div class="text-lg font-bold text-emerald-400">R$ ${d.new.toFixed(2)}</div>
+                </div>`;
+            container.appendChild(card);
+        });
+    }
+
+    function renderMatrix(matrixRows, meses) {
+        const thead = document.getElementById('matrix-header');
+        const tbody = document.getElementById('matrix-body');
+        thead.innerHTML = `<th class="px-5 py-4 font-semibold text-left">Rota</th>` + meses.map(m=>`<th class="px-5 py-4 font-semibold text-center">${m}</th>`).join('');
+        tbody.innerHTML = '';
+
+        Object.keys(matrixRows).sort().forEach(route => {
+            const [orig, dest] = route.split('||');
+            const minPrice = matrixRows[route]._minPrice;
+            const tr = document.createElement('tr');
+            tr.dataset.dest = dest;
+            tr.dataset.orig = orig;
+            tr.className = 'hover:bg-slate-800/50 transition-colors';
+            tr.innerHTML = `<td class="px-5 py-4">
+                <div class="font-semibold text-slate-200">${getCity(orig)} <span class="text-slate-500">➔</span> ${getCity(dest)}</div>
+                <div class="text-xs text-slate-500">${orig} ➔ ${dest}</div>
+                <button onclick="openTrendModal('${route}')" class="text-xs text-blue-400 hover:text-blue-300 mt-1 transition-colors">📈 ver tendência</button>
+            </td>`;
+
+            meses.forEach(mes => {
+                const c = matrixRows[route][mes];
+                if (!c) { tr.innerHTML += `<td class="px-5 py-4 text-center text-slate-600">-</td>`; return; }
+                let badge = '';
+                if (c.diffPerc !== null) {
+                    if (c.diffPerc < 0)      badge = `<span class="ml-1 text-xs font-bold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded">${c.diffPerc.toFixed(1)}%</span>`;
+                    else if (c.diffPerc > 0) badge = `<span class="ml-1 text-xs font-bold text-red-400 bg-red-400/10 px-1.5 py-0.5 rounded">+${c.diffPerc.toFixed(1)}%</span>`;
+                }
+                const td = document.createElement('td');
+                td.className = 'px-4 py-3 text-center';
+                const btn = document.createElement('button');
+                
+                // Highlight the minimum price for this route
+                let baseClass = 'price-badge-gray border-slate-700/50 hover:bg-slate-700/50';
+                if (c.price === minPrice && c.price < Infinity) {
+                    baseClass = 'price-badge-green border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.2)] hover:bg-emerald-500/10';
+                }
+
+                btn.className = `inline-flex flex-col items-center justify-center ${baseClass} px-3 py-2 rounded-lg border hover:border-emerald-500 transition-all cursor-pointer cell-btn`;
+                btn.dataset.orig = orig;
+                btn.dataset.dest = dest;
+                btn.dataset.mes = mes;
+                btn.dataset.price = c.price;
+                btn.dataset.dates = JSON.stringify(Array.from(c.dates || []));
+                btn.innerHTML = `<div class="flex items-center pointer-events-none"><span class="font-bold text-slate-200">R$ ${c.price.toFixed(2)}</span>${badge}</div><span class="text-xs text-slate-500 mt-0.5 pointer-events-none">${(c.dates||[]).length} data(s)</span>`;
+                td.appendChild(btn);
+                tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+        });
+        applyFilters();
+    }
+
+    window.addEventListener('DOMContentLoaded', tryAutoLoadDB);
+
+</script>
+</body>
+</html>
